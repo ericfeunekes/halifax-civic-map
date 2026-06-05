@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "perf:local": "node scripts/performance_test.mjs"
+  },
+  "devDependencies": {
+    "leaflet": "1.9.4",
+    "playwright-core": "1.60.0"
+  }
+}

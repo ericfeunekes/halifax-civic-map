@@ -2,6 +2,7 @@ const HALIFAX_CENTER = [44.6488, -63.5752];
 const LAST_VISIT_KEY = "halifax-civic-map:last-visit-date";
 const SNAPSHOT_MANIFEST_URL = "./data/manifest.json";
 const USE_LIVE_FALLBACK = true;
+const SNAPSHOT_PREFETCH_CAP_MULTIPLIER = 2;
 
 const SOURCE_LINKS = {
   civicAddresses:
@@ -336,12 +337,55 @@ radiusInput.addEventListener("change", () => {
   });
 });
 
-[trafficColorBy, trafficSizeBy, trafficLineMetric, trafficLinesToggle, permitSignalsToggle].forEach((input) => {
+[trafficColorBy, trafficSizeBy, trafficLineMetric, trafficLinesToggle].forEach((input) => {
   input.addEventListener("change", () => {
     readVisualSettings();
-    redrawFromRawData();
+    redrawVisualLayers((layer) => layer.category === "traffic");
   });
 });
+
+permitSignalsToggle.addEventListener("change", () => {
+  readVisualSettings();
+  redrawVisualLayers((layer) => layer.category === "permit");
+});
+
+function redrawVisualLayers(layerPredicate) {
+  if (!state.center) {
+    renderLayerCounts();
+    renderInspectionPanel();
+    return;
+  }
+
+  for (const layer of LAYERS.filter((entry) => state.selectedLayerIds.has(entry.id) && layerPredicate(entry))) {
+    redrawLayerFromRawData(layer);
+  }
+
+  renderLayerCounts();
+  renderSummary();
+  renderInspectionPanel();
+}
+
+function redrawLayerFromRawData(layer) {
+  removeRenderedLayer(layer.id);
+  const rawGeojson = state.rawGeoJsonByLayer.get(layer.id);
+  if (!rawGeojson) {
+    state.recordsByLayer.set(layer.id, []);
+    return;
+  }
+
+  const filteredGeojson = filterGeoJson(layer, rawGeojson);
+  state.recordsByLayer.set(layer.id, filteredGeojson.features || []);
+  if (filteredGeojson.features?.length) renderGeoJsonLayer(layer, filteredGeojson);
+}
+
+function removeRenderedLayer(layerId) {
+  [layerId, `${layerId}-lines`].forEach((key) => {
+    const leafletLayer = state.leafletLayers.get(key);
+    if (!leafletLayer) return;
+    map.removeLayer(leafletLayer);
+    state.leafletLayers.delete(key);
+  });
+}
 
 document.querySelectorAll("[data-since-preset]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -533,6 +577,7 @@ async function refreshData() {
   state.snapshot.skippedLayers.clear();
   LAYERS.forEach((layer) => {
     layer.snapshotDisplayCapped = false;
+    layer.snapshotPrefetchCapped = false;
   });
 
   const activeLayers = LAYERS.filter((layer) => state.selectedLayerIds.has(layer.id));
@@ -633,20 +678,26 @@ async function loadSnapshotChunks(layer, entry, center, radiusMeters) {
   const queryBbox = bboxForRadius(center, radiusMeters);
   const chunks = (entry.chunks || [])
     .filter((chunk) => bboxIntersects(queryBbox, chunk.bbox))
-    .sort((a, b) => bboxDistanceMeters(center, a.bbox) - bboxDistanceMeters(center, b.bbox));
+    .filter((chunk) => bboxMinimumDistanceMeters(center, chunk.bbox) <= radiusMeters)
+    .sort((a, b) => bboxMinimumDistanceMeters(center, a.bbox) - bboxMinimumDistanceMeters(center, b.bbox));
   const features = [];
   const seen = new Set();
   const cap = layerResultCap(layer);
+  const prefetchCap = cap * SNAPSHOT_PREFETCH_CAP_MULTIPLIER;
 
   for (const chunk of chunks) {
     const geojson = await loadSnapshotChunk(chunk.path);
     for (const feature of geojson.features || []) {
+      if (!featureWithinRadius(feature, center, radiusMeters)) continue;
       const key = featureStableKey(layer, feature);
       if (seen.has(key)) continue;
       seen.add(key);
       features.push(feature);
     }
-    if (features.length >= cap * 3) break;
+    if (features.length >= prefetchCap) {
+      layer.snapshotPrefetchCapped = true;
+      break;
+    }
   }
 
   return { type: "FeatureCollection", features };
@@ -671,6 +722,12 @@ function bboxIntersects(a, b) {
 function bboxDistanceMeters(center, bbox) {
   const lat = (bbox.south + bbox.north) / 2;
   const lon = (bbox.west + bbox.east) / 2;
+  return haversineMeters(center.lat, center.lon, lat, lon);
+}
+
+function bboxMinimumDistanceMeters(center, bbox) {
+  const lat = clamp(center.lat, bbox.south, bbox.north);
+  const lon = clamp(center.lon, bbox.west, bbox.east);
   return haversineMeters(center.lat, center.lon, lat, lon);
 }
 
@@ -1817,11 +1874,12 @@ function firstValue(props, keys) {
 }
 
 function renderSummary() {
-  const activeLayerCounts = LAYERS.map((layer) => ({
+  const selectedLayerCounts = LAYERS.filter((layer) => state.selectedLayerIds.has(layer.id)).map((layer) => ({
     layer,
     count: state.recordsByLayer.get(layer.id)?.length || 0,
     rawCount: state.rawGeoJsonByLayer.get(layer.id)?.features?.length || 0,
-  })).filter(({ count }) => count > 0);
+  }));
+  const activeLayerCounts = selectedLayerCounts.filter(({ count }) => count > 0);
 
   const total = activeLayerCounts.reduce((sum, { count }) => sum + count, 0);
   const rawTotal = LAYERS.filter((layer) => state.selectedLayerIds.has(layer.id)).reduce(
@@ -1856,7 +1914,7 @@ function renderSummary() {
       <li>${trafficStudyTotal.toLocaleString()} traffic-study records in the selected radius.</li>
       <li>${disruptionTotal.toLocaleString()} operational service/work records and ${projectTotal.toLocaleString()} provincial project records in selected layers.</li>
       <li>${activeLayerCounts.length ? "Most active selected layers: " + describeTopLayers(activeLayerCounts) + "." : "No records returned for the selected layers and radius."}</li>
-      ${capWarningDescription(activeLayerCounts) ? `<li>${escapeHtml(capWarningDescription(activeLayerCounts))}</li>` : ""}
+      ${capWarningDescription(selectedLayerCounts) ? `<li>${escapeHtml(capWarningDescription(selectedLayerCounts))}</li>` : ""}
     </ul>
   </div>`);
 
@@ -1939,8 +1997,8 @@ function describeTopLayers(activeLayerCounts) {
 
 function cappedLayers(activeLayerCounts) {
   return activeLayerCounts
-    .filter(({ layer, count }) => !layer.snapshotCapped && count >= layerResultCap(layer))
-    .map(({ layer, count }) => `${layer.label} (${count.toLocaleString()})`);
+    .filter(({ layer, rawCount }) => !layer.snapshotCapped && rawCount >= layerResultCap(layer))
+    .map(({ layer, rawCount }) => `${layer.label} (${rawCount.toLocaleString()} returned)`);
 }
 
 function snapshotCappedLayers(activeLayerCounts) {
@@ -1956,22 +2014,34 @@ function snapshotDisplayCappedLayers(activeLayerCounts) {
 }
 
 function capWarningDescription(activeLayerCounts) {
+  const warnings = [];
   const displayCapped = snapshotDisplayCappedLayers(activeLayerCounts);
   if (displayCapped.length) {
-    return `Display cap warning: ${displayCapped.join(", ")} exceeded the browser display limit for this radius, so the app shows the first returned records from the daily snapshot. Narrow the radius or filter dates before relying on completeness.`;
+    warnings.push(`Display cap warning: ${displayCapped.join(", ")} exceeded the browser display limit for this radius, so the app shows the first returned records from the daily snapshot. Narrow the radius or filter dates before relying on display completeness.`);
   }
 
   const queryCapped = cappedLayers(activeLayerCounts);
   if (queryCapped.length) {
-    return `Query cap warning: ${queryCapped.join(", ")} hit the configured record cap, so narrow the radius or date-filter it before relying on completeness.`;
+    warnings.push(`Query cap warning: ${queryCapped.join(", ")} hit the configured record cap. Narrow the radius or filter dates before relying on completeness.`);
+  }
+
+  const prefetchCapped = prefetchCappedLayers(activeLayerCounts);
+  if (prefetchCapped.length) {
+    warnings.push(`Prefetch cap warning: ${prefetchCapped.join(", ")} reached the browser prefetch guard for this radius, so omitted static chunks may contain matching records. Narrow the radius before relying on completeness.`);
   }
 
   const snapshotCapped = snapshotCappedLayers(activeLayerCounts);
   if (snapshotCapped.length) {
-    return `Snapshot harvest warning: the daily source harvest hit provider caps for ${snapshotCapped.join(", ")}, so the snapshot may be incomplete even though this local radius search is filtered from the static files.`;
+    warnings.push(`Snapshot harvest warning: the daily source harvest hit provider caps for ${snapshotCapped.join(", ")}, so the snapshot may be incomplete even though this local radius search is filtered from the static files.`);
   }
 
-  return "";
+  return warnings.join(" ");
+}
+
+function prefetchCappedLayers(activeLayerCounts) {
+  return activeLayerCounts
+    .filter(({ layer }) => layer.snapshotPrefetchCapped)
+    .map(({ layer }) => layer.label);
 }
 
 function snapshotDescription() {

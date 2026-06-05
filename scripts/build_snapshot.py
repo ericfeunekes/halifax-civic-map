@@ -218,17 +218,25 @@ def main() -> int:
     parser.add_argument("--bbox", default=None, help="Coverage bbox as west,south,east,north")
     parser.add_argument("--timeout", type=int, default=45, help="HTTP timeout in seconds")
     parser.add_argument("--max-pages", type=int, default=20, help="Safety cap for paginated source requests")
+    parser.add_argument("--from-sqlite", action="store_true", help="Export static data from an existing SQLite snapshot without provider fetches")
     args = parser.parse_args()
 
+    bbox_arg_provided = args.bbox is not None
     bbox = parse_bbox(args.bbox) if args.bbox else DEFAULT_BBOX
     output_dir = Path(args.output_dir)
     sqlite_path = Path(args.sqlite_path)
+    if args.from_sqlite and not sqlite_path.exists():
+        raise FileNotFoundError(f"--from-sqlite requires an existing SQLite snapshot: {sqlite_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(sqlite_path)
     try:
         init_db(conn)
+        if args.from_sqlite:
+            export_from_sqlite(conn, output_dir, bbox if bbox_arg_provided else None)
+            return 0
+
         reset_generated_exports(output_dir)
         generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         layer_entries = {}
@@ -237,7 +245,7 @@ def main() -> int:
             started = time.monotonic()
             geojson, capped = fetch_layer(layer, bbox, args.timeout, args.max_pages)
             geojson = prune_geojson_properties(geojson)
-            write_layer(conn, layer, geojson, generated_at)
+            write_layer(conn, layer, geojson, generated_at, capped)
             chunks = write_layer_chunks(output_dir, layer, geojson, bbox)
             layer_entries[layer.id] = {
                 "id": layer.id,
@@ -253,6 +261,7 @@ def main() -> int:
                 "seconds": round(time.monotonic() - started, 2),
             }
 
+        write_snapshot_metadata(conn, generated_at, bbox)
         manifest = {
             "generated_at": generated_at,
             "schema_version": 1,
@@ -264,6 +273,158 @@ def main() -> int:
         return 0
     finally:
         conn.close()
+
+
+def export_from_sqlite(conn: sqlite3.Connection, output_dir: Path, fallback_bbox: dict[str, Any] | None = None) -> None:
+    validate_sqlite_snapshot(conn)
+    generated_at = sqlite_generated_at(conn) or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    bbox = sqlite_snapshot_coverage(conn) or fallback_bbox
+    if bbox is None:
+        raise ValueError("SQLite snapshot does not store coverage metadata; pass --bbox west,south,east,north for this legacy database")
+    capped_layers = sqlite_capped_layers(conn)
+    layer_entries = {}
+    reset_generated_exports(output_dir)
+    for layer in LAYERS:
+        geojson = read_layer_geojson(conn, layer.id)
+        chunks = write_layer_chunks(output_dir, layer, geojson, bbox)
+        layer_entries[layer.id] = {
+            "id": layer.id,
+            "label": layer.label,
+            "source": layer.source,
+            "category": layer.category,
+            "source_type": layer.source_type,
+            "chunked": True,
+            "chunk_degrees": CHUNK_DEGREES,
+            "chunks": chunks,
+            "record_count": len(geojson["features"]),
+            "capped": capped_layers.get(layer.id, False),
+            "seconds": 0,
+        }
+
+    manifest = {
+        "generated_at": generated_at,
+        "schema_version": 1,
+        "coverage": bbox,
+        "mode": "static-snapshot",
+        "layers": layer_entries,
+    }
+    write_json(output_dir / "manifest.json", manifest)
+
+
+def sqlite_generated_at(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute("SELECT generated_at FROM layers ORDER BY generated_at DESC LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
+def write_snapshot_metadata(conn: sqlite3.Connection, generated_at: str, coverage: dict[str, Any]) -> None:
+    conn.execute("DELETE FROM snapshot_metadata")
+    conn.executemany(
+        "INSERT INTO snapshot_metadata(key, value_json) VALUES (?, ?)",
+        [
+            ("generated_at", json.dumps(generated_at, separators=(",", ":"), ensure_ascii=False)),
+            ("coverage", json.dumps(coverage, separators=(",", ":"), ensure_ascii=False)),
+            ("capped_metadata", json.dumps(True, separators=(",", ":"), ensure_ascii=False)),
+        ],
+    )
+    conn.commit()
+
+
+def sqlite_snapshot_coverage(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    if not sqlite_table_exists(conn, "snapshot_metadata"):
+        return None
+    row = conn.execute("SELECT value_json FROM snapshot_metadata WHERE key = 'coverage'").fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def validate_sqlite_snapshot(conn: sqlite3.Connection) -> None:
+    layer_rows = conn.execute("SELECT id, record_count, generated_at FROM layers").fetchall()
+    if not layer_rows:
+        raise ValueError("SQLite snapshot has no layer metadata; refusing to export an empty static snapshot")
+    layer_metadata = {row[0]: {"record_count": int(row[1]), "generated_at": row[2]} for row in layer_rows}
+    layer_ids = set(layer_metadata)
+    expected_ids = {layer.id for layer in LAYERS}
+    missing = sorted(expected_ids - layer_ids)
+    if missing:
+        raise ValueError(f"SQLite snapshot is missing layer metadata for: {', '.join(missing)}")
+    feature_rows = conn.execute(
+        """
+        SELECT layer_id, COUNT(*), COUNT(DISTINCT generated_at), MIN(generated_at), MAX(generated_at)
+        FROM features
+        GROUP BY layer_id
+        """
+    ).fetchall()
+    feature_metadata = {
+        layer_id: {
+            "record_count": int(record_count),
+            "generation_count": int(generation_count),
+            "min_generated_at": min_generated_at,
+            "max_generated_at": max_generated_at,
+        }
+        for layer_id, record_count, generation_count, min_generated_at, max_generated_at in feature_rows
+    }
+    unexpected_feature_layers = sorted(set(feature_metadata) - layer_ids)
+    if unexpected_feature_layers:
+        raise ValueError(f"SQLite snapshot has feature rows for unknown layers: {', '.join(unexpected_feature_layers)}")
+    for layer_id, metadata in layer_metadata.items():
+        feature_info = feature_metadata.get(
+            layer_id,
+            {"record_count": 0, "generation_count": 0, "min_generated_at": None, "max_generated_at": None},
+        )
+        if feature_info["record_count"] != metadata["record_count"]:
+            raise ValueError(
+                f"SQLite snapshot feature count mismatch for {layer_id}: "
+                f"layers.record_count={metadata['record_count']} features={feature_info['record_count']}"
+            )
+        if feature_info["record_count"] and (
+            feature_info["generation_count"] != 1
+            or feature_info["min_generated_at"] != metadata["generated_at"]
+            or feature_info["max_generated_at"] != metadata["generated_at"]
+        ):
+            raise ValueError(f"SQLite snapshot has stale feature rows for {layer_id}; rerun the source harvest before exporting")
+    generated_values = {row[2] for row in layer_rows}
+    if len(generated_values) != 1:
+        raise ValueError("SQLite snapshot contains mixed layer generations; rerun the source harvest before exporting")
+    metadata_generated_at = sqlite_metadata_value(conn, "generated_at")
+    if metadata_generated_at is not None and metadata_generated_at != next(iter(generated_values)):
+        raise ValueError("SQLite snapshot metadata generation does not match layer data; rerun the source harvest before exporting")
+    total_records = sum(int(row[1]) for row in layer_rows)
+    if total_records == 0:
+        raise ValueError("SQLite snapshot has zero recorded features across all layers; refusing to export")
+
+
+def sqlite_capped_layers(conn: sqlite3.Connection) -> dict[str, bool]:
+    if sqlite_metadata_value(conn, "capped_metadata") is not True:
+        return {layer.id: True for layer in LAYERS}
+    rows = conn.execute("SELECT id, capped FROM layers").fetchall()
+    return {layer_id: bool(capped) for layer_id, capped in rows}
+
+
+def sqlite_metadata_value(conn: sqlite3.Connection, key: str) -> Any:
+    if not sqlite_table_exists(conn, "snapshot_metadata"):
+        return None
+    row = conn.execute("SELECT value_json FROM snapshot_metadata WHERE key = ?", (key,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def read_layer_geojson(conn: sqlite3.Connection, layer_id: str) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT properties_json, geometry_json
+        FROM features
+        WHERE layer_id = ?
+        ORDER BY feature_index
+        """,
+        (layer_id,),
+    ).fetchall()
+    features = [
+        {
+            "type": "Feature",
+            "geometry": json.loads(geometry_json),
+            "properties": json.loads(properties_json),
+        }
+        for properties_json, geometry_json in rows
+    ]
+    return feature_collection(features)
 
 
 def parse_bbox(value: str) -> dict[str, Any]:
@@ -284,7 +445,8 @@ def init_db(conn: sqlite3.Connection) -> None:
           category TEXT NOT NULL,
           source_type TEXT NOT NULL,
           generated_at TEXT NOT NULL,
-          record_count INTEGER NOT NULL
+          record_count INTEGER NOT NULL,
+          capped INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS features (
           layer_id TEXT NOT NULL,
@@ -300,25 +462,49 @@ def init_db(conn: sqlite3.Connection) -> None:
           PRIMARY KEY (layer_id, feature_index)
         );
         CREATE INDEX IF NOT EXISTS idx_features_bbox ON features(layer_id, min_lon, min_lat, max_lon, max_lat);
+        CREATE TABLE IF NOT EXISTS snapshot_metadata (
+          key TEXT PRIMARY KEY,
+          value_json TEXT NOT NULL
+        );
         """
     )
+    ensure_column(conn, "layers", "capped", "INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if sqlite_column_exists(conn, table, column):
+        return
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def sqlite_column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row[1] == column for row in rows)
+
+
+def sqlite_table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    return row is not None
+
+
 def reset_generated_exports(output_dir: Path) -> None:
-    for child in ["layers", "chunks"]:
+    for child in ["layers", "chunks", "combined"]:
         path = output_dir / child
         if path.exists():
             shutil.rmtree(path)
+    manifest_path = output_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest_path.unlink()
 
 
-def write_layer(conn: sqlite3.Connection, layer: Layer, geojson: dict[str, Any], generated_at: str) -> None:
+def write_layer(conn: sqlite3.Connection, layer: Layer, geojson: dict[str, Any], generated_at: str, capped: bool = False) -> None:
     features = geojson.get("features", [])
     conn.execute("DELETE FROM features WHERE layer_id = ?", (layer.id,))
     conn.execute("DELETE FROM layers WHERE id = ?", (layer.id,))
     conn.execute(
-        "INSERT INTO layers(id, label, source, category, source_type, generated_at, record_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (layer.id, layer.label, layer.source, layer.category, layer.source_type, generated_at, len(features)),
+        "INSERT INTO layers(id, label, source, category, source_type, generated_at, record_count, capped) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (layer.id, layer.label, layer.source, layer.category, layer.source_type, generated_at, len(features), int(capped)),
     )
     rows = []
     for index, feature in enumerate(features):
