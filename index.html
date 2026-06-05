@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Halifax Civic Map</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css?v=20260604-legend-outside" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="sidebar" aria-label="Controls and nearby brief">
+        <header class="app-header">
+          <p class="eyebrow">Personal civic-data scout</p>
+          <h1>What is going on nearby?</h1>
+          <p class="subtitle">
+            Search a Halifax-area place, pick a radius, and pull public HRM open-data layers into one map.
+          </p>
+        </header>
+
+        <form id="search-form" class="search-panel">
+          <label for="place-input">Place or address</label>
+          <div class="search-row address-search">
+            <input
+              id="place-input"
+              name="place"
+              type="search"
+              autocomplete="off"
+              placeholder="Example: 6241 Quinpool Road"
+              aria-autocomplete="list"
+              aria-controls="address-suggestions"
+            />
+            <div id="address-suggestions" class="address-suggestions" role="listbox"></div>
+            <button type="submit">Search</button>
+          </div>
+          <div class="control-row">
+            <label for="radius-input">Radius</label>
+            <select id="radius-input" name="radius">
+              <option value="250">250 m</option>
+              <option value="500" selected>500 m</option>
+              <option value="1000">1 km</option>
+              <option value="2000">2 km</option>
+              <option value="5000">5 km</option>
+              <option value="10000">10 km</option>
+              <option value="15000">15 km</option>
+            </select>
+            <button id="refresh-button" type="button">Refresh data</button>
+          </div>
+          <p class="hint">You can also click the map to select a location.</p>
+        </form>
+
+        <section class="filter-panel" aria-label="Record filters">
+          <h2>Filters</h2>
+          <div class="filter-grid">
+            <label for="period-filter">Period</label>
+            <select id="period-filter">
+              <option value="all" selected>All dates</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="180">Last 6 months</option>
+              <option value="365">Last year</option>
+              <option value="custom">Custom range</option>
+            </select>
+
+            <label for="date-field-filter">Date basis</label>
+            <select id="date-field-filter">
+              <option value="any" selected>Any relevant date</option>
+              <option value="submitted">Permit submitted</option>
+              <option value="issued">Permit issued</option>
+              <option value="completed">Permit completed</option>
+              <option value="expires">Permit expires</option>
+              <option value="inspection">Inspection completed</option>
+              <option value="traffic-survey">Traffic survey date</option>
+              <option value="record-added">Record added</option>
+            </select>
+
+            <label for="completion-filter">Permit status</label>
+            <select id="completion-filter">
+              <option value="all" selected>All statuses</option>
+              <option value="open">Open / uncompleted</option>
+              <option value="completed">Completed only</option>
+              <option value="closed">Closed, expired, withdrawn</option>
+            </select>
+
+            <label for="traffic-type-filter">Traffic type</label>
+            <select id="traffic-type-filter">
+              <option value="all" selected>All studies</option>
+              <option value="SPD">Speed studies</option>
+              <option value="VOL">Volume studies</option>
+              <option value="TMC">Turning counts</option>
+              <option value="PED">Pedestrian counts</option>
+              <option value="BIKE">Bike studies</option>
+              <option value="SDS">Speed display signs</option>
+            </select>
+          </div>
+          <div class="quick-filter-row" aria-label="Since shortcuts">
+            <button type="button" data-since-preset="last-visit">Since last visit</button>
+            <button type="button" data-since-preset="7">7d</button>
+            <button type="button" data-since-preset="30">30d</button>
+            <button type="button" data-since-preset="90">90d</button>
+            <button type="button" data-since-preset="year">This year</button>
+            <button type="button" data-since-preset="clear">Clear dates</button>
+          </div>
+          <div id="custom-date-row" class="custom-date-row" hidden>
+            <label for="date-from-filter">From</label>
+            <input id="date-from-filter" type="date" aria-label="From date" />
+            <label for="date-to-filter">To</label>
+            <input id="date-to-filter" type="date" aria-label="To date" />
+          </div>
+          <p id="filter-note" class="hint">Filters redraw returned records. Use Refresh data after changing address, radius, or layers.</p>
+        </section>
+
+        <section class="signal-panel" aria-label="Visual signal controls">
+          <h2>Visual Signals</h2>
+          <div class="filter-grid">
+            <label for="traffic-color-by">Traffic color</label>
+            <select id="traffic-color-by">
+              <option value="speed" selected>Speed</option>
+              <option value="volume">Volume</option>
+              <option value="study-type">Study type</option>
+              <option value="year">Year</option>
+            </select>
+
+            <label for="traffic-size-by">Traffic size</label>
+            <select id="traffic-size-by">
+              <option value="volume" selected>Volume</option>
+              <option value="speed">Speed</option>
+              <option value="fixed">Fixed</option>
+            </select>
+
+            <label for="traffic-line-metric">Line thickness</label>
+            <select id="traffic-line-metric">
+              <option value="volume" selected>Avg volume</option>
+              <option value="speed">Avg speed</option>
+              <option value="count">Study count</option>
+            </select>
+          </div>
+          <label class="inline-toggle">
+            <input id="traffic-lines-toggle" type="checkbox" checked />
+            <span>Connect same-street traffic study points</span>
+          </label>
+          <label class="inline-toggle">
+            <input id="permit-signals-toggle" type="checkbox" checked />
+            <span>Style permits by attention signals</span>
+          </label>
+          <p class="hint">Street lines are an interpolated sketch between study points, not continuous measured road data.</p>
+        </section>
+
+        <section class="layer-panel" aria-label="Layer toggles">
+          <h2>Layers</h2>
+          <div id="layer-toggles" class="layer-toggles"></div>
+        </section>
+
+        <section class="brief-panel" aria-live="polite">
+          <div class="brief-heading">
+            <h2>Nearby Brief</h2>
+            <span id="status-pill" class="status-pill">No place selected</span>
+          </div>
+          <div id="summary" class="summary">
+            <p>Select a place to fetch public data. Core permit and traffic-study layers load first; broader disruption and area-context layers can be toggled on when you want the wider picture.</p>
+          </div>
+        </section>
+
+        <section class="source-panel">
+          <h2>Source Boundaries</h2>
+          <ul>
+            <li>Public data only. No ownership/title lookup.</li>
+            <li>Permit records are signals, not full project truth.</li>
+            <li>Traffic-study records show where counts/speed studies exist; they do not prove a street is safe or unsafe.</li>
+            <li>Service requests and work orders are operational records; some dates may reflect future scheduling or stale closure state.</li>
+            <li>Flood services found so far are token-gated, so flood is not live-mapped here yet.</li>
+            <li>OSM tiles provide map context; HRM endpoints provide civic data.</li>
+          </ul>
+        </section>
+      </section>
+
+      <section class="map-panel" aria-label="Map">
+        <div id="map"></div>
+        <div id="legend" class="legend"></div>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      crossorigin=""
+    ></script>
+    <script src="./app.js?v=20260604-broad"></script>
+  </body>
+</html>
