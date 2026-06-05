@@ -2,11 +2,30 @@
 
 Static local web app for exploring what public Halifax civic data says is going on near a selected place.
 
+Public site: <https://ericfeunekes.github.io/halifax-civic-map/>
+
+Active development repo:
+
+```text
+/Users/ericfeunekes/coding/halifax-civic-map
+```
+
+## Documentation
+
+- `AGENTS.md` - agent routing and repo invariants.
+- `docs/ARCHITECTURE.md` - app structure and data flow.
+- `docs/DATA_SOURCES.md` - active source inventory and source-addition checklist.
+- `docs/WORKFLOW.md` - development and release workflow.
+- `docs/TESTING.md` - proof contract.
+- `QA.md` - browser QA expectations.
+- `docs/DEPLOYMENT.md` - GitHub Pages deployment details.
+- `docs/plans/backlog.md` - candidate layers and engineering gaps.
+
 ## GitHub Pages
 
 This folder is a standalone static-site repository. The GitHub Actions workflow in `.github/workflows/pages.yml` deploys the repository root to GitHub Pages on every push to `main`.
 
-After the repository is pushed to GitHub, enable Pages with **Source: GitHub Actions** in the repository settings. The workflow can also be run manually from the Actions tab.
+GitHub Pages is enabled with **Source: GitHub Actions**. The workflow can also be run manually from the Actions tab.
 
 ## Open
 
