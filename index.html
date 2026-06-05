@@ -9,7 +9,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       crossorigin=""
     />
-    <link rel="stylesheet" href="./styles.css?v=20260604-legend-outside" />
+    <link rel="stylesheet" href="./styles.css?v=20260605-inspection" />
   </head>
   <body>
     <main class="app-shell">
@@ -155,6 +155,16 @@
           <div id="layer-toggles" class="layer-toggles"></div>
         </section>
 
+        <section class="inspection-panel" aria-label="Selected records">
+          <div class="brief-heading">
+            <h2>Selected Records</h2>
+            <span id="inspection-count" class="status-pill">0 records</span>
+          </div>
+          <div id="inspection-list" class="inspection-list">
+            <p class="muted">Select a place to inspect stacked records.</p>
+          </div>
+        </section>
+
         <section class="brief-panel" aria-live="polite">
           <div class="brief-heading">
             <h2>Nearby Brief</h2>
@@ -188,6 +198,6 @@
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       crossorigin=""
     ></script>
-    <script src="./app.js?v=20260604-broad"></script>
+    <script src="./app.js?v=20260605-inspection"></script>
   </body>
 </html>

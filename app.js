@@ -234,6 +234,7 @@ const state = {
     trafficLineMetric: "volume",
     permitSignals: true,
   },
+  inspection: null,
 };
 
 const map = L.map("map", {
@@ -251,6 +252,8 @@ const layerToggleEl = document.getElementById("layer-toggles");
 const legendEl = document.getElementById("legend");
 const summaryEl = document.getElementById("summary");
 const statusPillEl = document.getElementById("status-pill");
+const inspectionCountEl = document.getElementById("inspection-count");
+const inspectionListEl = document.getElementById("inspection-list");
 const radiusInput = document.getElementById("radius-input");
 const searchInput = document.getElementById("place-input");
 const suggestionEl = document.getElementById("address-suggestions");
@@ -470,6 +473,7 @@ function formatCivicAddress(props) {
 
 function setSelectedPlace(lat, lon, label) {
   state.center = { lat, lon, label };
+  state.inspection = null;
   updateSelectionGraphics();
   setStatus("Place selected");
 }
@@ -759,6 +763,7 @@ function redrawFromRawData() {
   if (!state.center) {
     updateCustomDateControls();
     renderLayerCounts();
+    renderInspectionPanel();
     return;
   }
 
@@ -775,6 +780,7 @@ function redrawFromRawData() {
 
   renderLayerCounts();
   renderSummary();
+  renderInspectionPanel();
 }
 
 function readFilters() {
@@ -904,6 +910,17 @@ function renderGeoJsonLayer(layer, geojson) {
     style: (feature) => polygonStyleForFeature(layer, feature),
     onEachFeature: (feature, marker) => {
       marker.bindPopup(renderPopup(layer, feature.properties || {}));
+      marker.on("click", (event) => {
+        const latlng = event.latlng || representativeLatLng(feature);
+        if (!latlng) return;
+        state.inspection = {
+          lat: latlng.lat,
+          lon: latlng.lng,
+          label: inspectionLabel(layer, feature.properties || {}),
+          radiusMeters: inspectionRadiusForFeature(feature),
+        };
+        renderInspectionPanel();
+      });
     },
   }).addTo(map);
 
@@ -1330,6 +1347,200 @@ function renderPermitBadges(props) {
   return `<div class="badge-row">${signal.reasons
     .map((reason) => `<span class="signal-badge">${escapeHtml(reason)}</span>`)
     .join("")}</div>`;
+}
+
+function renderInspectionPanel() {
+  if (!inspectionListEl || !inspectionCountEl) return;
+  if (!state.center) {
+    inspectionCountEl.textContent = "0 records";
+    inspectionListEl.innerHTML = `<p class="muted">Select a place to inspect stacked records.</p>`;
+    return;
+  }
+
+  const point = state.inspection || {
+    lat: state.center.lat,
+    lon: state.center.lon,
+    label: state.center.label,
+    radiusMeters: 35,
+  };
+  const records = recordsNearPoint(point).sort(sortInspectionRecords);
+  inspectionCountEl.textContent = `${records.length.toLocaleString()} ${records.length === 1 ? "record" : "records"}`;
+
+  if (!records.length) {
+    inspectionListEl.innerHTML = `<p class="muted">${escapeHtml(point.label)} has no visible point records within ${formatNumber(point.radiusMeters)} m under the current filters.</p>`;
+    return;
+  }
+
+  const groups = groupInspectionRecords(records);
+  inspectionListEl.innerHTML = `
+    <p class="inspection-record-meta">${escapeHtml(point.label)} - within ${formatNumber(point.radiusMeters)} m</p>
+    ${groups.map(renderInspectionGroup).join("")}
+  `;
+}
+
+function recordsNearPoint(point) {
+  const records = [];
+  const seen = new Set();
+  const includeSelectedAddressMatches = !state.inspection && Boolean(state.selectedAddress?.props);
+  for (const layer of LAYERS.filter((entry) => state.selectedLayerIds.has(entry.id))) {
+    const features = state.recordsByLayer.get(layer.id) || [];
+    for (const feature of features) {
+      const latlng = representativeLatLng(feature);
+      const distanceMeters = latlng ? haversineMeters(point.lat, point.lon, latlng.lat, latlng.lng) : Infinity;
+      const matchesPoint = distanceMeters <= point.radiusMeters;
+      const matchesAddress = includeSelectedAddressMatches && recordMatchesSelectedAddress(feature.properties || {});
+      if (matchesPoint || matchesAddress) {
+        const key = inspectionRecordKey(layer, feature);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        records.push({ layer, feature, props: feature.properties || {}, distanceMeters });
+      }
+    }
+  }
+  return records;
+}
+
+function inspectionRecordKey(layer, feature) {
+  const props = feature.properties || {};
+  return `${layer.id}:${firstValue(props, ["GLOBALID", "OBJECTID", "ObjectId", "PERMIT_NUMBER", "REQUEST_ID", "WORK_ORDER_ID"]) || JSON.stringify(feature.geometry)}`;
+}
+
+function recordMatchesSelectedAddress(props) {
+  const selected = state.selectedAddress?.props || {};
+  const selectedPid = normalizeIdentifier(selected.PID);
+  if (selectedPid && normalizeIdentifier(props.PID) === selectedPid) return true;
+
+  const selectedNumber = normalizeIdentifier(selected.CIV_NUM || selected.FULL_CIVIC);
+  const recordNumber = normalizeIdentifier(firstValue(props, ["CIVIC_NUMBER", "CIVIC_NUM", "CIV_NUM"]));
+  const selectedStreet = normalizeStreetName([selected.STR_NAME, selected.STR_TYPE].filter(Boolean).join(" "));
+  const recordStreet = normalizeStreetName(firstValue(props, ["STREET_NAME", "STREET", "STREETNAME1"]) || "");
+  if (selectedNumber && recordNumber && selectedNumber === recordNumber && selectedStreet && recordStreet.includes(selectedStreet)) {
+    return true;
+  }
+
+  const addressText = normalizeStreetName(
+    [
+      props.CIVIC_ADDRESS,
+      props.Civic_Address,
+      props.ADDRESS,
+      props.LOCATION,
+      props.STREET_NAME,
+      props.street,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return Boolean(selectedNumber && selectedStreet && addressText.includes(selectedNumber) && addressText.includes(selectedStreet));
+}
+
+function groupInspectionRecords(records) {
+  const groups = new Map();
+  for (const record of records) {
+    if (!groups.has(record.layer.id)) groups.set(record.layer.id, { layer: record.layer, records: [] });
+    groups.get(record.layer.id).records.push(record);
+  }
+  return Array.from(groups.values()).sort((a, b) => b.records.length - a.records.length);
+}
+
+function renderInspectionGroup(group) {
+  return `<details class="inspection-group" open>
+    <summary>
+      <span><span class="swatch" style="background:${group.layer.color}"></span> ${escapeHtml(group.layer.label)}</span>
+      <span class="inspection-count">${group.records.length.toLocaleString()}</span>
+    </summary>
+    <div class="inspection-records">${group.records.map(renderInspectionRecord).join("")}</div>
+  </details>`;
+}
+
+function renderInspectionRecord(record) {
+  const rows = popupRows(record.layer, record.props);
+  const title = inspectionRecordTitle(record.layer, record.props);
+  const subtitle = inspectionRecordSubtitle(record.layer, record.props);
+  const distanceLabel = Number.isFinite(record.distanceMeters) ? `${formatNumber(record.distanceMeters)} m away` : "address match";
+  return `<article class="inspection-record">
+    <div class="inspection-record-title">${escapeHtml(title)}</div>
+    <div class="inspection-record-meta">${escapeHtml(subtitle)}${subtitle ? " - " : ""}${escapeHtml(distanceLabel)}</div>
+    <details>
+      <summary>Details</summary>
+      ${rows
+        .map(([label, value]) => `<div class="popup-row"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(formatValue(value))}</div>`)
+        .join("")}
+      <div class="popup-row"><strong>Source:</strong> ${escapeHtml(record.layer.source)}</div>
+    </details>
+  </article>`;
+}
+
+function sortInspectionRecords(a, b) {
+  const dateDiff = latestRecordDate(b.props) - latestRecordDate(a.props);
+  if (dateDiff) return dateDiff;
+  return a.distanceMeters - b.distanceMeters;
+}
+
+function latestRecordDate(props) {
+  const dates = DATE_FIELD_SETS.any.map((field) => parseDate(props[field])).filter(Boolean);
+  if (!dates.length) return 0;
+  return Math.max(...dates.map((date) => date.getTime()));
+}
+
+function inspectionLabel(layer, props) {
+  return inspectionRecordTitle(layer, props);
+}
+
+function inspectionRecordTitle(layer, props) {
+  return (
+    firstValue(props, [
+      "PERMIT_NUMBER",
+      "Permit_Number",
+      "PERMIT_NAME",
+      "Permit_Name",
+      "REQUEST_ID",
+      "WORK_ORDER_ID",
+      "PROJECT_NAME",
+      "PRJ_DESC",
+      "facility_name",
+      "school_name",
+      "sect_desc",
+      "street",
+      "OBJECTID",
+      "ObjectId",
+    ]) || layer.label
+  );
+}
+
+function inspectionRecordSubtitle(layer, props) {
+  if (layer.category === "permit") return formatPermitLine(props);
+  if (layer.category === "traffic") {
+    return compactRows(props, [
+      ["Type", "STUDY_TYPE"],
+      ["Street", "STREETNAME1"],
+      ["Survey", "SURVEYDATE1"],
+    ])
+      .map(([, value]) => formatValue(value))
+      .join(" - ");
+  }
+  return compactRows(props, [
+    ["Status", "STATUS", "PRJ_STAT"],
+    ["Type", "REQUEST_CATEGORY", "ASSET_TYPE", "PRJ_TYPE", "facility_type", "board_name", "ASSETCODE"],
+    ["Address", "ADDRESS", "address", "civic_address_line_1"],
+  ])
+    .map(([, value]) => formatValue(value))
+    .join(" - ");
+}
+
+function inspectionRadiusForFeature(feature) {
+  return feature.geometry?.type === "Point" ? 25 : 50;
+}
+
+function representativeLatLng(feature) {
+  const coords = coordinatesForFeature(feature)
+    .filter(([lon, lat]) => Number.isFinite(Number(lon)) && Number.isFinite(Number(lat)))
+    .map(([lon, lat]) => ({ lat: Number(lat), lng: Number(lon) }));
+  if (!coords.length) return null;
+  if (coords.length === 1) return coords[0];
+  return {
+    lat: average(coords.map((coord) => coord.lat)),
+    lng: average(coords.map((coord) => coord.lng)),
+  };
 }
 
 function popupRows(layer, props) {
@@ -1923,6 +2134,12 @@ function normalizeStreetName(value) {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, " ");
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
 }
 
 function unique(values) {

@@ -119,6 +119,7 @@ h2 {
 
 .subtitle,
 .hint,
+.muted,
 .source-panel,
 .summary .muted {
   color: var(--muted);
@@ -128,6 +129,7 @@ h2 {
 .filter-panel,
 .signal-panel,
 .layer-panel,
+.inspection-panel,
 .brief-panel,
 .source-panel {
   padding: 16px;
@@ -331,6 +333,80 @@ h2 {
 .summary-card ul {
   margin: 0;
   padding-left: 18px;
+}
+
+.inspection-list {
+  display: grid;
+  gap: 8px;
+  max-height: 460px;
+  overflow: auto;
+}
+
+.inspection-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.inspection-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.inspection-group summary::marker {
+  color: var(--muted);
+}
+
+.inspection-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.inspection-records {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.inspection-record {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.inspection-record-title {
+  margin-bottom: 5px;
+  font-weight: 750;
+}
+
+.inspection-record-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.inspection-record details {
+  margin-top: 6px;
+}
+
+.inspection-record details summary {
+  display: inline-flex;
+  min-height: auto;
+  padding: 0;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.inspection-record .popup-row {
+  margin-top: 4px;
+  font-size: 0.84rem;
 }
 
 .inline-muted {
