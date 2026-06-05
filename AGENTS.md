@@ -14,6 +14,7 @@ This is a personal public-data map for exploring what civic records say is happe
 
 Before non-trivial work:
 
+- Confirm the repo root is `/Users/ericfeunekes/coding/halifax-civic-map` before editing, committing, or pushing.
 - Read `docs/ARCHITECTURE.md` for source and module boundaries.
 - Read `docs/DATA_SOURCES.md` before adding, removing, renaming, or reinterpreting any data source.
 - Read `docs/TESTING.md` and `QA.md` before changing map rendering, layer fetching, filters, summaries, or deployment.
@@ -40,6 +41,7 @@ After context loss or a long pause:
 - Changing visual encodings requires updating the UI labels, legend behavior if relevant, and the caveats in `README.md` or `docs/ARCHITECTURE.md`.
 - Changing deployment requires updating `.github/workflows/pages.yml`, `docs/DEPLOYMENT.md`, and `docs/runbooks/closeout.md` if proof changes.
 - The vault copy under `/Users/ericfeunekes/ai notes/initiatives/halifax-civic-map/app` is no longer the active development source; use this repo.
+- Do not edit or commit the old vault checkout as a second source tree. If the vault initiative context is stale, update the vault overview/log separately and keep repo work in this checkout.
 
 ## Build And Verify
 

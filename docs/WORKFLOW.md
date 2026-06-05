@@ -19,7 +19,13 @@ Use this repo:
 /Users/ericfeunekes/coding/halifax-civic-map
 ```
 
-The earlier vault copy is historical context, not the active development source.
+Before editing, committing, or pushing, confirm:
+
+```bash
+git rev-parse --show-toplevel
+```
+
+The earlier vault copy under `/Users/ericfeunekes/ai notes/initiatives/halifax-civic-map/app` is historical context, not the active development source. Do not repair, commit, or push from that checkout as part of repo work. If the vault initiative notes are stale, update the vault overview/log as context and keep the product repo changes here.
 
 ## Change Routing
 
@@ -30,7 +36,7 @@ The earlier vault copy is historical context, not the active development source.
 | Map rendering/legend/sidebar | `ARCHITECTURE.md`, `QA.md` | Browser screenshot or computed layout check |
 | Selected-record inspection | `ARCHITECTURE.md`, `QA.md` | Dense address search and panel count check |
 | GitHub Pages workflow | `DEPLOYMENT.md`, `runbooks/closeout.md` | Workflow success plus public URL smoke test |
-| Docs-only change | `docs/AGENTS.md` | Link/path sanity and git status |
+| Docs-only change | `docs/AGENTS.md` | Link/path sanity, symlink check, git status; no full browser data QA unless deployment or visible app behavior changed |
 
 ## Release Path
 
