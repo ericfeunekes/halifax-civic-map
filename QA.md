@@ -22,9 +22,10 @@ For UI/data changes:
 For deployment changes:
 
 1. Push to `main`.
-2. Watch `Deploy GitHub Pages` to success.
+2. Watch `Deploy GitHub Pages` to success, including the snapshot-builder test and static data build steps.
 3. Open `https://ericfeunekes.github.io/halifax-civic-map/`.
 4. Repeat the smoke search.
+5. Confirm the nearby brief says the data came from a generated snapshot, not only live fallback.
 
 ## Feature-Specific Checks
 
@@ -38,9 +39,20 @@ Expected for `6241 QUINPOOL RD, HALIFAX` at 500 m with default layers:
 
 Counts may drift as public datasets change; the contract is multiple grouped records, not an exact permanent count.
 
+### Static Snapshot
+
+Expected for the public Pages URL after a successful workflow:
+
+- `data/manifest.json` is present.
+- The nearby brief includes snapshot generation and coverage text.
+- `agent-browser errors` is empty.
+- Live fallback should not be needed for `6241 Quinpool Road`, because it is inside the configured urban HRM coverage box.
+
 ### Wide Radius
 
 For 10 km wide scans, enable broad context layers and expect some layers to hit caps. The brief must show cap warnings when caps are reached.
+
+The static snapshot path intentionally guards the heaviest default-off layers above 5 km. At 10 km, Public ROW permits, Cityworks service requests, Cityworks work orders, Active Travelways, and NS addressable roads may be skipped with a brief note instructing the user to narrow the radius. This protects browser performance while keeping those layers available for tighter neighbourhood scans.
 
 ### Visual Layout
 

@@ -9,7 +9,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       crossorigin=""
     />
-    <link rel="stylesheet" href="./styles.css?v=20260605-inspection" />
+    <link rel="stylesheet" href="./styles.css?v=20260605-snapshot" />
   </head>
   <body>
     <main class="app-shell">
@@ -18,7 +18,7 @@
           <p class="eyebrow">Personal civic-data scout</p>
           <h1>What is going on nearby?</h1>
           <p class="subtitle">
-            Search a Halifax-area place, pick a radius, and pull public HRM open-data layers into one map.
+            Search a Halifax-area place, pick a radius, and inspect a daily public-data snapshot in one map.
           </p>
         </header>
 
@@ -111,7 +111,7 @@
             <label for="date-to-filter">To</label>
             <input id="date-to-filter" type="date" aria-label="To date" />
           </div>
-          <p id="filter-note" class="hint">Filters redraw returned records. Use Refresh data after changing address, radius, or layers.</p>
+          <p id="filter-note" class="hint">Filters redraw returned snapshot records. Use Refresh data after changing address, radius, or layers.</p>
         </section>
 
         <section class="signal-panel" aria-label="Visual signal controls">
@@ -183,7 +183,7 @@
             <li>Traffic-study records show where counts/speed studies exist; they do not prove a street is safe or unsafe.</li>
             <li>Service requests and work orders are operational records; some dates may reflect future scheduling or stale closure state.</li>
             <li>Flood services found so far are token-gated, so flood is not live-mapped here yet.</li>
-            <li>OSM tiles provide map context; HRM endpoints provide civic data.</li>
+            <li>OSM tiles provide map context; GitHub Pages serves the daily civic-data snapshot when available.</li>
           </ul>
         </section>
       </section>
@@ -198,6 +198,6 @@
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       crossorigin=""
     ></script>
-    <script src="./app.js?v=20260605-inspection"></script>
+    <script src="./app.js?v=20260605-snapshot"></script>
   </body>
 </html>

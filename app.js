@@ -1,5 +1,7 @@
 const HALIFAX_CENTER = [44.6488, -63.5752];
 const LAST_VISIT_KEY = "halifax-civic-map:last-visit-date";
+const SNAPSHOT_MANIFEST_URL = "./data/manifest.json";
+const USE_LIVE_FALLBACK = true;
 
 const SOURCE_LINKS = {
   civicAddresses:
@@ -70,6 +72,7 @@ const LAYERS = [
     source: "HRM PPL&C Public Works ROW Permits",
     category: "permit",
     defaultOn: false,
+    snapshotWideMaxRadius: 5000,
   },
   {
     id: "traffic-studies",
@@ -88,6 +91,7 @@ const LAYERS = [
     category: "disruption",
     sourceType: "arcgis-latlon-table",
     defaultOn: false,
+    snapshotWideMaxRadius: 5000,
   },
   {
     id: "work-orders",
@@ -98,6 +102,7 @@ const LAYERS = [
     category: "disruption",
     sourceType: "arcgis-webmercator-table",
     defaultOn: false,
+    snapshotWideMaxRadius: 5000,
   },
   {
     id: "nspw-road-projects",
@@ -125,6 +130,7 @@ const LAYERS = [
     source: "HRM Active Travelways",
     category: "mobility",
     defaultOn: false,
+    snapshotWideMaxRadius: 5000,
   },
   {
     id: "traffic-volume-sections",
@@ -145,6 +151,7 @@ const LAYERS = [
     category: "road",
     sourceType: "socrata-geojson",
     defaultOn: false,
+    snapshotWideMaxRadius: 5000,
   },
   {
     id: "child-care",
@@ -235,6 +242,14 @@ const state = {
     permitSignals: true,
   },
   inspection: null,
+  snapshot: {
+    manifest: null,
+    manifestPromise: null,
+    layerCache: new Map(),
+    mode: "unknown",
+    liveFallbacks: new Set(),
+    skippedLayers: new Set(),
+  },
 };
 
 const map = L.map("map", {
@@ -512,8 +527,13 @@ async function refreshData() {
 
   state.radius = Number(radiusInput.value);
   refreshButton.disabled = true;
-  setStatus("Fetching public data...");
+  setStatus("Fetching snapshot data...");
   clearDataLayers();
+  state.snapshot.liveFallbacks.clear();
+  state.snapshot.skippedLayers.clear();
+  LAYERS.forEach((layer) => {
+    layer.snapshotDisplayCapped = false;
+  });
 
   const activeLayers = LAYERS.filter((layer) => state.selectedLayerIds.has(layer.id));
   const fetches = activeLayers.map(async (layer) => {
@@ -531,16 +551,151 @@ async function refreshData() {
   await Promise.all(fetches);
   redrawFromRawData();
   window.localStorage.setItem(LAST_VISIT_KEY, isoDate(new Date()));
-  setStatus("Updated");
+  setStatus(statusAfterRefresh());
   refreshButton.disabled = false;
 }
 
 async function queryLayer(layer, center, radiusMeters) {
+  try {
+    const geojson = await querySnapshotLayer(layer, center, radiusMeters);
+    if (geojson) return geojson;
+  } catch (error) {
+    console.warn(`Snapshot lookup failed for ${layer.label}; trying live fallback`, error);
+  }
+
+  if (!USE_LIVE_FALLBACK) {
+    throw new Error(`${layer.label} snapshot is unavailable`);
+  }
+
+  state.snapshot.liveFallbacks.add(layer.id);
   if (layer.sourceType === "socrata-geojson") return querySocrataGeoJson(layer, center, radiusMeters);
   if (layer.sourceType === "socrata-point-json") return querySocrataPointJson(layer, center, radiusMeters);
   if (layer.sourceType === "arcgis-latlon-table") return queryArcGisLatLonTable(layer, center, radiusMeters);
   if (layer.sourceType === "arcgis-webmercator-table") return queryArcGisWebMercatorTable(layer, center, radiusMeters);
   return queryArcGisLayer(layer, center, radiusMeters);
+}
+
+async function querySnapshotLayer(layer, center, radiusMeters) {
+  const manifest = await loadSnapshotManifest();
+  if (!manifest) return null;
+  if (!pointInSnapshotCoverage(center, manifest.coverage)) return null;
+  if (layer.snapshotWideMaxRadius && radiusMeters > layer.snapshotWideMaxRadius) {
+    state.snapshot.skippedLayers.add(layer.label);
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  const entry = manifest.layers?.[layer.id];
+  if (!entry) return null;
+  layer.snapshotRecordCount = entry.record_count;
+  layer.snapshotCapped = Boolean(entry.capped);
+
+  const geojson = entry.chunks
+    ? await loadSnapshotChunks(layer, entry, center, radiusMeters)
+    : await loadSnapshotLayer(entry.path, layer.id);
+  state.snapshot.mode = "snapshot";
+  return limitSnapshotGeoJson(layer, filterGeoJsonByRadius(geojson, center, radiusMeters));
+}
+
+async function loadSnapshotManifest() {
+  if (state.snapshot.manifest) return state.snapshot.manifest;
+  if (!state.snapshot.manifestPromise) {
+    state.snapshot.manifestPromise = fetch(SNAPSHOT_MANIFEST_URL)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Snapshot manifest returned ${response.status}`);
+        return response.json();
+      })
+      .then((manifest) => {
+        state.snapshot.manifest = manifest;
+        return manifest;
+      })
+      .catch((error) => {
+        state.snapshot.mode = "live";
+        console.warn("Static data snapshot unavailable; live provider fallback remains enabled", error);
+        return null;
+      });
+  }
+  return state.snapshot.manifestPromise;
+}
+
+async function loadSnapshotLayer(path, layerId) {
+  if (!path) throw new Error(`Snapshot layer ${layerId} has no path`);
+  if (state.snapshot.layerCache.has(layerId)) return state.snapshot.layerCache.get(layerId);
+
+  const url = new URL(`./data/${path}`, window.location.href);
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`Snapshot layer ${layerId} returned ${response.status}`);
+  const geojson = await response.json();
+  state.snapshot.layerCache.set(layerId, geojson);
+  return geojson;
+}
+
+async function loadSnapshotChunks(layer, entry, center, radiusMeters) {
+  const queryBbox = bboxForRadius(center, radiusMeters);
+  const chunks = (entry.chunks || [])
+    .filter((chunk) => bboxIntersects(queryBbox, chunk.bbox))
+    .sort((a, b) => bboxDistanceMeters(center, a.bbox) - bboxDistanceMeters(center, b.bbox));
+  const features = [];
+  const seen = new Set();
+  const cap = layerResultCap(layer);
+
+  for (const chunk of chunks) {
+    const geojson = await loadSnapshotChunk(chunk.path);
+    for (const feature of geojson.features || []) {
+      const key = featureStableKey(layer, feature);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      features.push(feature);
+    }
+    if (features.length >= cap * 3) break;
+  }
+
+  return { type: "FeatureCollection", features };
+}
+
+async function loadSnapshotChunk(path) {
+  if (state.snapshot.layerCache.has(path)) return state.snapshot.layerCache.get(path);
+
+  const url = new URL(`./data/${path}`, window.location.href);
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error(`Snapshot chunk ${path} returned ${response.status}`);
+  const geojson = await response.json();
+  state.snapshot.layerCache.set(path, geojson);
+  return geojson;
+}
+
+function bboxIntersects(a, b) {
+  if (!a || !b) return false;
+  return a.west <= b.east && a.east >= b.west && a.south <= b.north && a.north >= b.south;
+}
+
+function bboxDistanceMeters(center, bbox) {
+  const lat = (bbox.south + bbox.north) / 2;
+  const lon = (bbox.west + bbox.east) / 2;
+  return haversineMeters(center.lat, center.lon, lat, lon);
+}
+
+function featureStableKey(layer, feature) {
+  const props = feature.properties || {};
+  return `${layer.id}:${firstValue(props, ["GLOBALID", "GlobalID", "OBJECTID", "ObjectId", "PERMIT_NUMBER", "REQUEST_ID", "WORK_ORDER_ID", "REQ_NUM"]) || JSON.stringify(feature.geometry)}`;
+}
+
+function pointInSnapshotCoverage(center, coverage) {
+  if (!coverage) return false;
+  return center.lon >= coverage.west && center.lon <= coverage.east && center.lat >= coverage.south && center.lat <= coverage.north;
+}
+
+function limitSnapshotGeoJson(layer, geojson) {
+  const cap = layerResultCap(layer);
+  const features = geojson.features || [];
+  if (features.length <= cap) return geojson;
+  layer.snapshotDisplayCapped = true;
+  return { ...geojson, features: features.slice(0, cap) };
+}
+
+function statusAfterRefresh() {
+  if (!state.snapshot.manifest) return "Updated live";
+  if (state.snapshot.liveFallbacks.size) return "Updated from snapshot + live";
+  return "Updated from snapshot";
 }
 
 async function queryArcGisLayer(layer, center, radiusMeters) {
@@ -1691,6 +1846,7 @@ function renderSummary() {
   cards.push(`<div class="summary-card">
     <h3>${escapeHtml(state.center.label)}</h3>
     <p class="muted">Radius: ${state.radius.toLocaleString()} m. Showing ${total.toLocaleString()} of ${rawTotal.toLocaleString()} returned public records. ${escapeHtml(activeFiltersDescription())}</p>
+    ${snapshotDescription() ? `<p class="muted">${escapeHtml(snapshotDescription())}</p>` : ""}
   </div>`);
 
   cards.push(`<div class="summary-card">
@@ -1700,7 +1856,7 @@ function renderSummary() {
       <li>${trafficStudyTotal.toLocaleString()} traffic-study records in the selected radius.</li>
       <li>${disruptionTotal.toLocaleString()} operational service/work records and ${projectTotal.toLocaleString()} provincial project records in selected layers.</li>
       <li>${activeLayerCounts.length ? "Most active selected layers: " + describeTopLayers(activeLayerCounts) + "." : "No records returned for the selected layers and radius."}</li>
-      ${cappedLayers(activeLayerCounts).length ? `<li>Query cap warning: ${escapeHtml(cappedLayers(activeLayerCounts).join(", "))} hit the configured record cap, so narrow the radius or date-filter it before relying on completeness.</li>` : ""}
+      ${capWarningDescription(activeLayerCounts) ? `<li>${escapeHtml(capWarningDescription(activeLayerCounts))}</li>` : ""}
     </ul>
   </div>`);
 
@@ -1783,8 +1939,52 @@ function describeTopLayers(activeLayerCounts) {
 
 function cappedLayers(activeLayerCounts) {
   return activeLayerCounts
-    .filter(({ layer, count }) => count >= layerResultCap(layer))
+    .filter(({ layer, count }) => !layer.snapshotCapped && count >= layerResultCap(layer))
     .map(({ layer, count }) => `${layer.label} (${count.toLocaleString()})`);
+}
+
+function snapshotCappedLayers(activeLayerCounts) {
+  return activeLayerCounts
+    .filter(({ layer }) => layer.snapshotCapped)
+    .map(({ layer }) => layer.label);
+}
+
+function snapshotDisplayCappedLayers(activeLayerCounts) {
+  return activeLayerCounts
+    .filter(({ layer }) => layer.snapshotDisplayCapped)
+    .map(({ layer, count }) => `${layer.label} (${count.toLocaleString()} shown)`);
+}
+
+function capWarningDescription(activeLayerCounts) {
+  const displayCapped = snapshotDisplayCappedLayers(activeLayerCounts);
+  if (displayCapped.length) {
+    return `Display cap warning: ${displayCapped.join(", ")} exceeded the browser display limit for this radius, so the app shows the first returned records from the daily snapshot. Narrow the radius or filter dates before relying on completeness.`;
+  }
+
+  const queryCapped = cappedLayers(activeLayerCounts);
+  if (queryCapped.length) {
+    return `Query cap warning: ${queryCapped.join(", ")} hit the configured record cap, so narrow the radius or date-filter it before relying on completeness.`;
+  }
+
+  const snapshotCapped = snapshotCappedLayers(activeLayerCounts);
+  if (snapshotCapped.length) {
+    return `Snapshot harvest warning: the daily source harvest hit provider caps for ${snapshotCapped.join(", ")}, so the snapshot may be incomplete even though this local radius search is filtered from the static files.`;
+  }
+
+  return "";
+}
+
+function snapshotDescription() {
+  const manifest = state.snapshot.manifest;
+  if (!manifest) return "Using live public endpoints because the static data snapshot is unavailable.";
+  const generated = manifest.generated_at ? `Snapshot generated ${formatValue(manifest.generated_at)}.` : "Static data snapshot loaded.";
+  const coverage = manifest.coverage?.label ? ` Coverage: ${manifest.coverage.label}.` : "";
+  const fallbackCount = state.snapshot.liveFallbacks.size;
+  const fallback = fallbackCount ? ` ${fallbackCount} selected layer${fallbackCount === 1 ? "" : "s"} used live fallback.` : "";
+  const skipped = state.snapshot.skippedLayers.size
+    ? ` Broad-radius guard skipped ${Array.from(state.snapshot.skippedLayers).join(", ")}; narrow to 5 km or less to load those heavy layers from the static snapshot.`
+    : "";
+  return `${generated}${coverage}${fallback}${skipped}`;
 }
 
 function layerResultCap(layer) {

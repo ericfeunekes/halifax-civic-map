@@ -1,6 +1,6 @@
 # Testing
 
-This repo has no build system and no automated unit test suite yet. Current proof is a combination of syntax checks and browser QA against live public endpoints.
+This repo has no build system. Current proof is a combination of JavaScript syntax checks, Python snapshot-builder tests, local snapshot generation, GitHub Actions deployment proof, and browser QA.
 
 ## Fast Checks
 
@@ -8,6 +8,18 @@ Run after any JavaScript edit:
 
 ```bash
 node --check app.js
+```
+
+Run after snapshot-builder edits:
+
+```bash
+/usr/bin/env python3 -m unittest discover -s tests
+```
+
+Run after source, coverage, or generated-data changes:
+
+```bash
+/usr/bin/env python3 scripts/build_snapshot.py --output-dir data --sqlite-path data/civic.sqlite
 ```
 
 Run after workflow edits:
@@ -22,6 +34,7 @@ Then push and watch the GitHub Pages workflow.
 
 - Map rendering changes.
 - Source fetcher changes.
+- Snapshot builder or manifest changes.
 - Layer registry changes.
 - Filters and visual encodings.
 - Summary or selected-record panel behavior.
@@ -44,12 +57,13 @@ A good proof note names:
 - layer counts or panel counts observed;
 - console/page error state;
 - whether the GitHub Pages workflow succeeded when deployment was involved.
+- whether the app loaded static snapshot data or fell back to live provider calls.
 
 ## Current Test Gaps
 
-- No unit tests for filtering, source dispatch, or coordinate conversion.
+- No unit tests for browser-side filtering or source dispatch.
 - No mechanical link/pointer check for docs.
-- No mocked fixture suite for data-source regressions.
+- No mocked fixture suite for every external data-source schema.
 - No visual regression test for map layout.
 
 These gaps are acceptable for now because the app is a small static tool, but browser QA is mandatory until automated coverage exists.

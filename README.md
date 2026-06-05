@@ -1,6 +1,8 @@
 # Halifax Civic Map
 
-Static local web app for exploring what public Halifax civic data says is going on near a selected place.
+Static web app for exploring what public Halifax civic data says is going on near a selected place.
+
+The public app reads a daily static data snapshot served from GitHub Pages. A GitHub Actions workflow fetches verified HRM/NS/Socrata public sources, writes a local SQLite build artifact, exports static GeoJSON files, and deploys the app plus generated data. Normal user searches do not re-query the civic data providers.
 
 Public site: <https://ericfeunekes.github.io/halifax-civic-map/>
 
@@ -23,9 +25,21 @@ Active development repo:
 
 ## GitHub Pages
 
-This folder is a standalone static-site repository. The GitHub Actions workflow in `.github/workflows/pages.yml` deploys the repository root to GitHub Pages on every push to `main`.
+This folder is a standalone static-site repository. The GitHub Actions workflow in `.github/workflows/pages.yml` tests the snapshot builder, generates `data/`, and deploys the repository root to GitHub Pages on every push to `main`, manual dispatch, and a daily schedule.
 
 GitHub Pages is enabled with **Source: GitHub Actions**. The workflow can also be run manually from the Actions tab.
+
+## Data Snapshot
+
+Generate the same static data locally:
+
+```bash
+/usr/bin/env python3 scripts/build_snapshot.py --output-dir data --sqlite-path data/civic.sqlite
+```
+
+Generated files under `data/` are ignored by git except `data/README.md`. The SQLite file is for local analysis and build verification; the browser reads `data/manifest.json` and spatial GeoJSON chunks under `data/chunks/`.
+
+Snapshot coverage is the urban HRM core: Halifax peninsula, Dartmouth, Bedford, Sackville, Spryfield, and Herring Cove area. If the snapshot is missing or a selected point is outside coverage, the app can fall back to live provider queries.
 
 ## Open
 

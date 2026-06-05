@@ -5,7 +5,10 @@
 - `index.html` - static application shell and control/sidebar layout.
 - `styles.css` - responsive layout, map/legend/sidebar styling, popup and inspection panel styling.
 - `app.js` - Leaflet map, source registry, public-data fetchers, filters, visual signals, summaries, and selected-record inspection.
-- `.github/workflows/pages.yml` - GitHub Pages deployment workflow.
+- `.github/workflows/pages.yml` - GitHub Pages deployment workflow and daily static-data refresh.
+- `scripts/build_snapshot.py` - public-source harvester that writes SQLite plus static GeoJSON snapshot files.
+- `data/` - generated static data surface; only `data/README.md` is committed.
+- `tests/` - Python tests for the snapshot builder.
 - `docs/` - durable architecture, workflow, source, testing, QA, and deployment docs.
 
 This is a personal public-data map for exploring what civic records say is happening near a Halifax-area place. It is not a generic sales demo and it should not make legal, engineering, ownership, safety, insurance, or property-level claims.
@@ -40,12 +43,15 @@ After context loss or a long pause:
 - Changing date/status filters requires checking permit, traffic, Cityworks, and project records because they use different field names.
 - Changing visual encodings requires updating the UI labels, legend behavior if relevant, and the caveats in `README.md` or `docs/ARCHITECTURE.md`.
 - Changing deployment requires updating `.github/workflows/pages.yml`, `docs/DEPLOYMENT.md`, and `docs/runbooks/closeout.md` if proof changes.
+- Changing snapshot coverage, source harvesting, generated data shape, or SQLite handling requires updating `scripts/build_snapshot.py`, `docs/ARCHITECTURE.md`, `docs/DATA_SOURCES.md`, `docs/DEPLOYMENT.md`, and `docs/TESTING.md`.
 - The vault copy under `/Users/ericfeunekes/ai notes/initiatives/halifax-civic-map/app` is no longer the active development source; use this repo.
 - Do not edit or commit the old vault checkout as a second source tree. If the vault initiative context is stale, update the vault overview/log separately and keep repo work in this checkout.
 
 ## Build And Verify
 
 - Syntax: `node --check app.js`
+- Snapshot tests: `/usr/bin/env python3 -m unittest discover -s tests`
+- Snapshot build: `/usr/bin/env python3 scripts/build_snapshot.py --output-dir data --sqlite-path data/civic.sqlite`
 - Local serve: `python3 -m http.server 8765`
 - Local URL: `http://127.0.0.1:8765`
 - Public URL: `https://ericfeunekes.github.io/halifax-civic-map/`
@@ -57,4 +63,5 @@ After context loss or a long pause:
 - Do not keep a layer active until the exact endpoint is verified and returns the expected Halifax/HRM geography.
 - Do not make source claims stronger than the public fields support.
 - Wide-radius results can hit record caps; summaries must caveat incompleteness when caps are reached.
+- Normal public app data should be served from the generated GitHub Pages snapshot. Live provider fetches are fallback behavior, not the default sharing model.
 - Proof claims must name the exact surface tested: local server, Tailscale URL, or GitHub Pages URL.

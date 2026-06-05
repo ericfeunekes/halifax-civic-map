@@ -2,27 +2,33 @@
 
 This app uses public, unauthenticated sources only.
 
+GitHub Actions harvests the active data sources daily and before each Pages deploy. The public browser app reads generated static files from GitHub Pages first, so normal user searches do not re-query HRM/NS/Socrata providers. Live provider queries remain as fallback when the static snapshot is unavailable or the selected point is outside snapshot coverage.
+
+Snapshot coverage is the urban HRM core: Halifax peninsula, Dartmouth, Bedford, Sackville, Spryfield, and Herring Cove area.
+
+The heaviest default-off layers are guarded above 5 km in the browser snapshot path. Narrow to 5 km or less to load Public ROW permits, Cityworks service requests, Cityworks work orders, Active Travelways, and NS addressable roads.
+
 ## Active Sources
 
 | Layer | Source | Access Pattern | Notes |
 | --- | --- | --- | --- |
-| HRM civic address search | HRM CivicAddresses FeatureServer | ArcGIS query by parsed street/number | Used for typeahead and exact address selection. |
-| Building permits | HRM PPL&C geolocated permits layer 0 | ArcGIS radius query | Core permit signal. |
-| Construction permits | HRM PPL&C geolocated permits layer 1 | ArcGIS radius query | Core permit signal. |
-| Engineering permits | HRM PPL&C geolocated permits layer 2 | ArcGIS radius query | Core permit signal. |
-| Halifax Water permits | HRM PPL&C geolocated permits layer 3 | ArcGIS radius query | Core permit signal. |
-| Land-use approvals | HRM PPL&C geolocated permits layer 4 | ArcGIS radius query | Core permit/planning signal. |
-| Public ROW permits | HRM PPL&C geolocated permits layer 6 | ArcGIS radius query | Default off because it can hit caps quickly. |
-| Traffic studies | HRM Traffic Studies FeatureServer | ArcGIS radius query | Speed, volume, turning, pedestrian, bike, and related studies. |
-| Service requests | HRM Cityworks Service Requests table | ArcGIS table query, client converts lat/lon to points | Operational signal, default off. |
-| Work orders | HRM Cityworks Work Orders table | ArcGIS table query, client converts Web Mercator coordinates to points | Operational signal, default off. |
-| NSDPW road projects | NSDPW Capital Projects Work Plan 2025-2030 layer 1 | ArcGIS radius query | Provincial project signal, default off. |
-| NSDPW bridge projects | NSDPW Capital Projects Work Plan 2025-2030 layer 0 | ArcGIS radius query | Provincial project signal, default off. |
-| Active travelways | HRM Active Travelways FeatureServer | ArcGIS radius query | Active transportation infrastructure, not current activity. |
-| Provincial traffic sections | Nova Scotia Traffic Volume Sections | Socrata GeoJSON `within_box`, client radius clipping | Contextual road sections, default off. |
-| NS addressable roads | NSCAF Addressable Roads | Socrata GeoJSON `within_box`, client radius clipping | Contextual road network, default off. |
-| Child care | Nova Scotia Child Care Directory | Socrata JSON points, client radius clipping | Area context, default off. |
-| Public schools | Nova Scotia Public Schools | Socrata JSON points, client radius clipping | Area context, default off. |
+| HRM civic address search | HRM CivicAddresses FeatureServer | Live ArcGIS query by parsed street/number | Used for typeahead and exact address selection. |
+| Building permits | HRM PPL&C geolocated permits layer 0 | Action harvest, static GeoJSON, live fallback | Core permit signal. |
+| Construction permits | HRM PPL&C geolocated permits layer 1 | Action harvest, static GeoJSON, live fallback | Core permit signal. |
+| Engineering permits | HRM PPL&C geolocated permits layer 2 | Action harvest, static GeoJSON, live fallback | Core permit signal. |
+| Halifax Water permits | HRM PPL&C geolocated permits layer 3 | Action harvest, static GeoJSON, live fallback | Core permit signal. |
+| Land-use approvals | HRM PPL&C geolocated permits layer 4 | Action harvest, static GeoJSON, live fallback | Core permit/planning signal. |
+| Public ROW permits | HRM PPL&C geolocated permits layer 6 | Action harvest, static GeoJSON, live fallback | Default off because it can hit caps quickly. |
+| Traffic studies | HRM Traffic Studies FeatureServer | Action harvest, static GeoJSON, live fallback | Speed, volume, turning, pedestrian, bike, and related studies. |
+| Service requests | HRM Cityworks Service Requests table | Action harvest converts lat/lon table to static GeoJSON | Operational signal, default off. |
+| Work orders | HRM Cityworks Work Orders table | Action harvest converts Web Mercator table to static GeoJSON | Operational signal, default off. |
+| NSDPW road projects | NSDPW Capital Projects Work Plan 2025-2030 layer 1 | Action harvest, static GeoJSON, live fallback | Provincial project signal, default off. |
+| NSDPW bridge projects | NSDPW Capital Projects Work Plan 2025-2030 layer 0 | Action harvest, static GeoJSON, live fallback | Provincial project signal, default off. |
+| Active travelways | HRM Active Travelways FeatureServer | Action harvest, static GeoJSON, live fallback | Active transportation infrastructure, not current activity. |
+| Provincial traffic sections | Nova Scotia Traffic Volume Sections | Action harvest via Socrata GeoJSON `within_box` | Contextual road sections, default off. |
+| NS addressable roads | NSCAF Addressable Roads | Action harvest via Socrata GeoJSON `within_box` | Contextual road network, default off. |
+| Child care | Nova Scotia Child Care Directory | Action harvest via Socrata JSON points | Area context, default off. |
+| Public schools | Nova Scotia Public Schools | Action harvest via Socrata JSON points | Area context, default off. |
 
 ## Source Addition Checklist
 
