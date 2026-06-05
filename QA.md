@@ -19,6 +19,15 @@ For UI/data changes:
 6. Run `agent-browser errors`.
 7. Run `agent-browser console`.
 
+For snapshot/data-shape changes, also run the broad-layer flow:
+
+1. Open a fresh `agent-browser` session.
+2. Enable all layer toggles before selecting a place, so the page performs one data refresh instead of one refresh per checkbox.
+3. Set radius to 10 km.
+4. Search `6241 Quinpool Road`.
+5. Wait a bounded interval, then inspect summary text, layer counts, page errors, and console output.
+6. Treat a non-settling or browser-blocking broad run as a failed proof. Do not close by saying provider load was reduced if the browser became unusable; fix the snapshot export shape, field pruning, display caps, or broad-radius guards first.
+
 For deployment changes:
 
 1. Push to `main`.
@@ -53,6 +62,8 @@ Expected for the public Pages URL after a successful workflow:
 For 10 km wide scans, enable broad context layers and expect some layers to hit caps. The brief must show cap warnings when caps are reached.
 
 The static snapshot path intentionally guards the heaviest default-off layers above 5 km. At 10 km, Public ROW permits, Cityworks service requests, Cityworks work orders, Active Travelways, and NS addressable roads may be skipped with a brief note instructing the user to narrow the radius. This protects browser performance while keeping those layers available for tighter neighbourhood scans.
+
+The wide-radius proof is both a data proof and a performance proof. Long-running `agent-browser wait` commands, blocked `errors`/`console` calls, or a browser daemon that becomes unresponsive are evidence that the payload/render path is too heavy, even if the data source providers are protected.
 
 ### Visual Layout
 

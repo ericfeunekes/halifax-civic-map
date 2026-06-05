@@ -44,6 +44,7 @@ After context loss or a long pause:
 - Changing visual encodings requires updating the UI labels, legend behavior if relevant, and the caveats in `README.md` or `docs/ARCHITECTURE.md`.
 - Changing deployment requires updating `.github/workflows/pages.yml`, `docs/DEPLOYMENT.md`, and `docs/runbooks/closeout.md` if proof changes.
 - Changing snapshot coverage, source harvesting, generated data shape, or SQLite handling requires updating `scripts/build_snapshot.py`, `docs/ARCHITECTURE.md`, `docs/DATA_SOURCES.md`, `docs/DEPLOYMENT.md`, and `docs/TESTING.md`.
+- Snapshot/provider-protection work must preserve browser usability. If broad all-layer QA stalls or requires unbounded waits, treat that as a failing product proof and adjust chunking, pruning, caps, or guards before shipping.
 - The vault copy under `/Users/ericfeunekes/ai notes/initiatives/halifax-civic-map/app` is no longer the active development source; use this repo.
 - Do not edit or commit the old vault checkout as a second source tree. If the vault initiative context is stale, update the vault overview/log separately and keep repo work in this checkout.
 

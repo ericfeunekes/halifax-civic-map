@@ -43,6 +43,15 @@ Then push and watch the GitHub Pages workflow.
 
 Use `agent-browser`; do not claim UI proof from code inspection alone.
 
+## Snapshot Performance Contract
+
+Snapshot/data changes must prove both sides of the contract:
+
+- Provider protection: normal searches read generated GitHub Pages snapshot data rather than re-querying every civic source.
+- Browser usability: the generated payload and rendering path settle in a bounded real-browser smoke test.
+
+For snapshot builder, manifest, chunking, field-pruning, display-cap, or broad-radius guard changes, run the standard 500 m `6241 Quinpool Road` smoke and the all-layer 10 km smoke described in `QA.md`. If `agent-browser wait`, `errors`, or `console` calls hang because the page is overloaded, treat that as a failed test. The fix belongs in export shape, field pruning, chunk selection, display caps, or broad-radius guards before the work is considered done.
+
 ## Standard Smoke Addresses
 
 - `6241 Quinpool Road` - known to return stacked permit/traffic records and exercises the Selected Records panel.

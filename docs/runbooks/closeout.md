@@ -7,7 +7,7 @@ Before declaring work done:
 3. Run `node --check app.js` after JavaScript edits.
 4. Run `/usr/bin/env python3 -m unittest discover -s tests` after snapshot-builder or workflow edits.
 5. Run `/usr/bin/env python3 scripts/build_snapshot.py --output-dir data --sqlite-path data/civic.sqlite` after source harvesting, coverage, generated-data, or workflow behavior changes.
-6. Run `agent-browser` QA for UI/data/deployment changes.
+6. Run `agent-browser` QA for UI/data/deployment changes. For snapshot/data-shape changes, include both the 500 m smoke and the all-layer 10 km smoke from `QA.md`; a stalled or unresponsive browser is a failed proof.
 7. For docs-only changes, verify link/path sanity, `CLAUDE.md` symlinks, and repo cleanliness; do not claim full browser data QA unless the app surface changed.
 8. For deployed changes, verify the GitHub Pages workflow completed successfully.
 9. Smoke-test the public Pages URL after deployment.
